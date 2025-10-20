@@ -1,63 +1,74 @@
 import json
 from datetime import datetime, timedelta
+import os
 
-# Function to filter pull requests and repositories based on specified conditions
 def filter_pull_requests(input_filename, output_filename):
+    print(f"🚀 Iniciando filtragem dos dados do arquivo: {input_filename}")
+
+    # Verifica se o arquivo existe
+    if not os.path.exists(input_filename):
+        print(f"❌ ERRO: Arquivo '{input_filename}' não encontrado no diretório atual.")
+        return
+
+    # Carrega os dados JSON
     with open(input_filename, 'r', encoding='utf-8') as f:
         data = json.load(f)
+
+    print(f"📦 Total de repositórios carregados: {len(data)}")
 
     filtered_data = []
     repos_names = []
 
     for repo in data:
         repo_name_with_owner = repo['repository']['nameWithOwner']
-        repo_stars = repo['repository']['stars']
-        repo_url = repo['repository']['url']
+        prs = repo['repository'].get('pullRequests', [])
+        print(f"🔍 Analisando {repo_name_with_owner} ({len(prs)} PRs)")
 
-        # Filtered pull requests for this repository
         filtered_pull_requests = []
 
-        for pr in repo['repository']['pullRequests']:
+        for pr in prs:
             created_at = datetime.fromisoformat(pr['createdAt'].replace("Z", "+00:00"))
             closed_at = datetime.fromisoformat(pr['closedAt'].replace("Z", "+00:00")) if pr['closedAt'] else None
             merged_at = datetime.fromisoformat(pr['mergedAt'].replace("Z", "+00:00")) if pr['mergedAt'] else None
 
-            # Check if the PR has at least one review
-            has_reviews = pr['reviewCount'] > 0
+            # Aceita PRs com revisão ou comentários
+            has_reviews = (pr['reviewCount'] > 0) or (pr['commentsCount'] > 0)
 
-            # Calculate the time difference
+            # Calcula o tempo de análise
             time_diff = None
             if merged_at:
                 time_diff = merged_at - created_at
             elif closed_at:
                 time_diff = closed_at - created_at
 
-            # Check the time difference and review conditions
-            if has_reviews and time_diff and time_diff >= timedelta(hours=1):
+            # Aplica filtros
+            if has_reviews and time_diff and time_diff >= timedelta(minutes=10):
                 filtered_pull_requests.append(pr)
 
-        # Only include repos with 100 or more filtered PRs
-        if len(filtered_pull_requests) >= 100:
+        print(f"   ✅ {len(filtered_pull_requests)} PRs válidos após filtragem")
+
+        # Mantém repositórios com pelo menos 20 PRs válidos
+        if len(filtered_pull_requests) >= 20:
             filtered_repo_data = {
                 'repository': {
                     'nameWithOwner': repo_name_with_owner,
-                    'stars': repo_stars,
-                    'url': repo_url,
+                    'stars': repo['repository']['stars'],
+                    'url': repo['repository']['url'],
                     'pullRequests': filtered_pull_requests
                 }
             }
             filtered_data.append(filtered_repo_data)
             repos_names.append(repo_name_with_owner)
 
-    # Save filtered data to a new JSON file
-    with open(output_filename, 'w', encoding='utf-8') as f:
-        json.dump(filtered_data, f, indent=4)
+    # Salva os arquivos resultantes
+    if filtered_data:
+        with open(output_filename, 'w', encoding='utf-8') as f:
+            json.dump(filtered_data, f, indent=4)
+        with open('repos_names.json', 'w', encoding='utf-8') as f:
+            json.dump(repos_names, f, indent=4)
+        print(f"\n💾 {len(filtered_data)} repositórios válidos salvos em '{output_filename}'")
+    else:
+        print("\n⚠️ Nenhum repositório atendeu aos critérios definidos — verifique os filtros ou os dados de entrada.")
 
-    with open('repos_names.json', 'w', encoding='utf-8') as f:
-        json.dump(repos_names, f, indent=4)
-
-
-# Example usage
 if __name__ == "__main__":
     filter_pull_requests("repos_and_prs.json", "filtered_prs.json")
-    print("Filtered data saved to filtered_prs.json")
